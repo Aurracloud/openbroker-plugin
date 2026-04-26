@@ -1,0 +1,59 @@
+{
+  "name": "openbroker-plugin",
+  "version": "1.0.0",
+  "description": "OpenClaw plugin for the openbroker Hyperliquid trading CLI — agent tools, position watcher, automation restart service.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src/",
+    "openclaw.plugin.json",
+    "SKILL.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openbroker": "^1.1.0"
+  },
+  "peerDependencies": {
+    "openbroker-monitoring": "*"
+  },
+  "peerDependenciesMeta": {
+    "openbroker-monitoring": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.17",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aurracloud/openbroker-plugin.git"
+  },
+  "homepage": "https://github.com/aurracloud/openbroker-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/aurracloud/openbroker-plugin/issues"
+  },
+  "author": "aurracloud",
+  "keywords": [
+    "openbroker",
+    "openclaw",
+    "plugin",
+    "hyperliquid",
+    "trading",
+    "agent-skills",
+    "ai-agents"
+  ],
+  "license": "MIT"
+}
