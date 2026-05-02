@@ -1,6 +1,6 @@
 {
   "name": "openbroker-plugin",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "OpenClaw plugin for the openbroker Hyperliquid trading CLI — agent tools, position watcher, automation restart service.",
   "type": "module",
   "openclaw": {
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "openbroker": "^1.1.0"
+    "openbroker": "^1.2.0"
   },
   "peerDependencies": {
     "openbroker-monitoring": "*"

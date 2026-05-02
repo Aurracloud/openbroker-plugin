@@ -4,8 +4,8 @@ description: Hyperliquid trading plugin with background position monitoring and 
 license: MIT
 compatibility: Requires Node.js 22+, network access to api.hyperliquid.xyz
 homepage: https://www.npmjs.com/package/openbroker-plugin
-metadata: {"author": "monemetrics", "version": "1.0.0", "openclaw": {"requires": {"bins": ["openbroker"], "env": ["HYPERLIQUID_PRIVATE_KEY"]}, "primaryEnv": "HYPERLIQUID_PRIVATE_KEY", "install": [{"id": "node", "kind": "node", "package": "openbroker-plugin", "bins": ["openbroker"], "label": "Install openbroker-plugin (npm)"}]}}
-allowed-tools: ob_account ob_positions ob_funding ob_markets ob_search ob_spot ob_fills ob_orders ob_order_status ob_fees ob_candles ob_funding_history ob_trades ob_rate_limit ob_funding_scan ob_buy ob_sell ob_limit ob_trigger ob_tpsl ob_cancel ob_spot_buy ob_spot_sell ob_twap ob_twap_cancel ob_twap_status ob_bracket ob_chase ob_watcher_status ob_auto_run ob_auto_stop ob_auto_list Bash(openbroker:*)
+metadata: {"author": "monemetrics", "version": "1.2.0", "openclaw": {"requires": {"bins": ["openbroker"], "env": ["HYPERLIQUID_PRIVATE_KEY"]}, "primaryEnv": "HYPERLIQUID_PRIVATE_KEY", "install": [{"id": "node", "kind": "node", "package": "openbroker-plugin", "bins": ["openbroker"], "label": "Install openbroker-plugin (npm)"}]}}
+allowed-tools: ob_account ob_positions ob_funding ob_markets ob_search ob_spot ob_outcomes ob_fills ob_orders ob_order_status ob_fees ob_candles ob_funding_history ob_trades ob_rate_limit ob_funding_scan ob_buy ob_sell ob_limit ob_trigger ob_tpsl ob_cancel ob_spot_buy ob_spot_sell ob_outcome_buy ob_outcome_sell ob_twap ob_twap_cancel ob_twap_status ob_bracket ob_chase ob_watcher_status ob_auto_run ob_auto_stop ob_auto_list Bash(openbroker:*)
 ---
 
 # Open Broker - Hyperliquid Trading CLI
@@ -33,13 +33,15 @@ openbroker buy --coin ETH --size 0.1
 
 ## Important: Finding Assets Before Trading
 
-**Always search before trading an unfamiliar asset.** Hyperliquid has main perps (ETH, BTC, SOL...), HIP-3 perps (xyz:CL, xyz:GOLD, km:USOIL...), and spot markets. Use search to discover the correct ticker:
+**Always search before trading an unfamiliar asset.** Hyperliquid has main perps (ETH, BTC, SOL...), HIP-3 perps (xyz:CL, xyz:GOLD, km:USOIL...), spot markets, and HIP-4 outcome markets. Use search to discover the correct ticker:
 
 ```bash
 openbroker search --query GOLD              # Find all GOLD markets across all providers
 openbroker search --query oil               # Find oil-related assets (CL, BRENTOIL, USOIL...)
 openbroker search --query BTC --type perp   # BTC perps only
 openbroker search --query NATGAS --type hip3  # HIP-3 only
+openbroker search --query BTC --type outcome  # HIP-4 only
+openbroker outcomes --query BTC             # Outcome-specific details
 ```
 
 Or with the `ob_search` plugin tool: `{ "query": "gold" }` or `{ "query": "oil", "type": "hip3" }`
@@ -55,12 +57,13 @@ Every info JSON output includes an `assetId` field — the canonical Hyperliquid
 | Main perps | universe index | `HYPE` → `159` |
 | HIP-3 perps | `100000 + dexIdx * 10000 + assetIdx` | `hyna:HYPE` → `140002` |
 | Spot | `10000 + pair.index` | `HYPE/USDC` → `10107` |
+| HIP-4 outcomes | `100000000 + (10 * outcomeId + side)` | outcome `123` YES → `100001230` |
 
 ```bash
 openbroker search HYPE --json | jq '.[] | {coin, assetId, type, provider}'
 ```
 
-Trading commands still take `--coin <name>` (including HIP-3 `dex:COIN`) — `assetId` is for queries, comparisons, and agent state, not order placement.
+Trading commands still take `--coin <name>` for perps/spot (including HIP-3 `dex:COIN`) — `assetId` is for queries, comparisons, and agent state, not order placement. HIP-4 outcome commands take `--outcome <id|#encoding|+encoding>` plus `--outcome-side yes|no` when using a plain id.
 
 ## Troubleshooting: CLI Fallback
 
@@ -76,6 +79,7 @@ If an `ob_*` plugin tool returns unexpected errors, empty results, or crashes, *
 | `ob_markets` | `openbroker markets --json --include-hip3` |
 | `ob_search` | `openbroker search --query <QUERY> --json` |
 | `ob_spot` | `openbroker spot --json` (or `--balances --json`) |
+| `ob_outcomes` | `openbroker outcomes --json` (or `--query <QUERY> --json`) |
 | `ob_fills` | `openbroker fills --json` |
 | `ob_orders` | `openbroker orders --json` |
 | `ob_order_status` | `openbroker order-status --oid <OID> --json` |
@@ -90,6 +94,8 @@ If an `ob_*` plugin tool returns unexpected errors, empty results, or crashes, *
 | `ob_limit` | `openbroker limit --coin <COIN> --side <SIDE> --size <SIZE> --price <PRICE>` |
 | `ob_tpsl` | `openbroker tpsl --coin <COIN> --tp <PRICE> --sl <PRICE>` |
 | `ob_cancel` | `openbroker cancel --all` or `--coin <COIN>` |
+| `ob_outcome_buy` | `openbroker outcome-buy --outcome <ID> --outcome-side yes --size <SIZE>` |
+| `ob_outcome_sell` | `openbroker outcome-sell --outcome <ID> --outcome-side yes --size <SIZE>` |
 | `ob_auto_run` | `openbroker auto run <script> [--dry]` |
 | `ob_auto_stop` | `openbroker auto stop <id>` (or SIGINT if run in foreground) |
 | `ob_auto_list` | `openbroker auto list` |
@@ -171,12 +177,13 @@ openbroker markets --coin BTC # Specific coin
 openbroker markets --coin BTC --json  # JSON (includes assetId)
 ```
 
-### All Markets (Perps + Spot + HIP-3)
+### All Markets (Perps + Spot + HIP-3 + HIP-4)
 ```bash
 openbroker all-markets                 # Show all markets
 openbroker all-markets --type perp     # Main perps only
 openbroker all-markets --type hip3     # HIP-3 perps only
 openbroker all-markets --type spot     # Spot markets only
+openbroker all-markets --type outcome  # HIP-4 outcome markets only
 openbroker all-markets --top 20        # Top 20 by volume
 openbroker all-markets --json          # JSON (includes assetId)
 ```
@@ -186,6 +193,7 @@ openbroker all-markets --json          # JSON (includes assetId)
 openbroker search --query GOLD    # Find all GOLD markets
 openbroker search --query BTC     # Find BTC across all providers
 openbroker search --query ETH --type perp  # ETH perps only
+openbroker search --query BTC --type outcome  # HIP-4 outcome markets only
 openbroker search HYPE --json     # JSON with assetId per result
 ```
 
@@ -349,6 +357,22 @@ openbroker spot-buy --coin PURR --size 500 --dry
 ```
 
 **Spot flags:** `--coin`, `--side`, `--size`, `--price` (omit → market order), `--tif` (`Gtc`/`Ioc`/`Alo`, default `Gtc`), `--slippage` (bps, market orders only), `--dry`, `--verbose`.
+
+### HIP-4 Outcome Trading
+Outcome markets are prediction-style YES/NO tokens. The outcome spot coin is `#<encoding>`, the token name is `+<encoding>`, and `encoding = 10 * outcomeId + side` where side `0` is usually YES and side `1` is usually NO.
+
+```bash
+openbroker outcomes --query BTC
+openbroker outcomes --outcome 123 --side yes --json
+openbroker outcomes --balances
+
+openbroker outcome-buy --outcome 123 --outcome-side yes --size 10 --dry
+openbroker outcome-buy --outcome 123 --outcome-side no --size 5 --price 0.42
+openbroker outcome-sell --outcome #1230 --size 10
+openbroker outcome-order --outcome 123 --outcome-side yes --side buy --size 10
+```
+
+**Outcome flags:** `--outcome`, `--outcome-side`, `--side`, `--size`, `--price` (omit → market IOC), `--tif` (`Gtc`/`Ioc`/`Alo`, default `Gtc`), `--slippage`, `--sz-decimals`, `--dry`, `--verbose`.
 
 ## Advanced Execution
 
@@ -925,12 +949,14 @@ The `api.client` object exposes the full `HyperliquidClient`. All `coin` params 
 | `cancel(coin, oid)` | Cancel a single order by numeric OID. Returns `CancelResponse` |
 | `cancelAll(coin?)` | Cancel all open orders. If `coin` is provided, only cancels orders for that asset. Returns `CancelResponse[]` |
 | `order(coin, isBuy, size, price, orderType, reduceOnly?, includeBuilder?, leverage?)` | Low-level order placement. `orderType`: `{ limit: { tif: 'Gtc' | 'Ioc' | 'Alo' } }`. Automatically injects builder fee, rounds price/size, and handles HIP-3 margin setup. Returns `OrderResponse` |
+| `outcomeMarketOrder(outcomeRef, outcomeSide, isBuy, size, slippageBps?, szDecimalsOverride?)` | HIP-4 outcome market order via IOC limit. `outcomeRef` can be an outcome id, `#encoding`, or `+encoding`. Returns `OrderResponse` |
+| `outcomeLimitOrder(outcomeRef, outcomeSide, isBuy, size, price, tif?, szDecimalsOverride?)` | HIP-4 outcome limit order. `outcomeSide`: `yes`/`no` or `0`/`1` for plain ids. Returns `OrderResponse` |
 
 #### Market Data
 
 | Method | Returns |
 |--------|---------|
-| `getAllMids()` | `Record<string, string>` — mid prices for all assets (main + HIP-3). Key = coin name, value = price string |
+| `getAllMids()` | `Record<string, string>` — mid prices for assets. HIP-4 outcomes use `#<encoding>` keys when available |
 | `getMetaAndAssetCtxs()` | `MetaAndAssetCtxs` — market metadata (universe of assets with `szDecimals`, `maxLeverage`) and asset contexts (funding, open interest, volume, mark/oracle prices) |
 | `getL2Book(coin)` | `{ bids, asks, bestBid, bestAsk, midPrice, spread, spreadBps }` — L2 order book with computed spread |
 | `getRecentTrades(coin)` | `Array<{ coin, side, px, sz, time, hash, tid }>` — recent trade tape. `side`: `'B'` (buy) or `'A'` (sell) |
@@ -941,6 +967,9 @@ The `api.client` object exposes the full `HyperliquidClient`. All `coin` params 
 | `getAllPerpMetas()` | `Array<{ dexName, meta, assetCtxs }>` — metadata + contexts for every perp DEX (main + all HIP-3) |
 | `getSpotMeta()` | `{ tokens, universe }` — spot market metadata (token info, trading pairs) |
 | `getSpotMetaAndAssetCtxs()` | `{ meta, assetCtxs }` — spot metadata + price/volume contexts |
+| `getOutcomeMeta()` | HIP-4 raw outcome metadata (`outcomes`, `questions`) |
+| `getOutcomeMarkets()` | Normalized HIP-4 markets with parsed descriptions, side encodings, asset ids, token decimals, and price context |
+| `resolveOutcomeRef(ref, side?)` | Convert outcome id / `#encoding` / `+encoding` into `{ outcome, side, encoding, coin, tokenName, assetId }` |
 | `getTokenDetails(tokenId)` | Token details: supply, deployer, prices. Returns `null` if not found |
 
 #### Account

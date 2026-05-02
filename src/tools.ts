@@ -325,12 +325,12 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
 
     {
       name: 'ob_search',
-      description: 'Search for assets across all Hyperliquid market providers (perps, HIP-3, spot)',
+      description: 'Search for assets across all Hyperliquid market providers (perps, HIP-3, spot, HIP-4 outcomes)',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search query (e.g. GOLD, BTC, ETH)' },
-          type: { type: 'string', enum: ['perp', 'hip3', 'spot', 'all'], description: 'Filter by market type: perp, hip3, spot, or all (default: all)' },
+          type: { type: 'string', enum: ['perp', 'hip3', 'spot', 'outcome', 'all'], description: 'Filter by market type: perp, hip3, spot, outcome, or all (default: all)' },
         },
         required: ['query'],
       },
@@ -425,9 +425,81 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
           } catch (e) { errors.push(`spot: ${e instanceof Error ? e.message : String(e)}`); }
         }
 
+        // Search HIP-4 outcomes
+        if (!typeFilter || typeFilter === 'outcome') {
+          try {
+            const outcomes = await client.getOutcomeMarkets();
+            for (const market of outcomes) {
+              const parsed = Object.values(market.parsedDescription).join(' ');
+              const searchable = `${market.name} ${market.description} ${parsed}`.toUpperCase();
+              if (!searchable.includes(query)) continue;
+
+              for (const side of market.sides) {
+                results.push({
+                  coin: side.coin,
+                  type: 'outcome',
+                  outcome: market.outcome,
+                  outcomeSide: side.name,
+                  assetId: side.assetId,
+                  markPx: side.midPx ?? side.markPx,
+                  dayVolume: side.dayNtlVlm,
+                  description: market.description,
+                  parsedDescription: market.parsedDescription,
+                });
+              }
+            }
+          } catch (e) { errors.push(`outcome: ${e instanceof Error ? e.message : String(e)}`); }
+        }
+
         const response: Record<string, unknown> = { query, results };
         if (errors.length > 0) response.errors = errors;
         return json(response);
+      },
+    },
+
+    {
+      name: 'ob_outcomes',
+      description: 'Search and inspect HIP-4 outcome markets on Hyperliquid',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search market name, description, underlying, expiry, or target price' },
+          outcome: { type: 'string', description: 'Outcome id, #encoding, or +encoding for a specific market' },
+          side: { type: 'string', enum: ['yes', 'no', '0', '1'], description: 'Outcome side when outcome is a plain id' },
+          balances: { type: 'boolean', description: 'Return outcome token balances for the configured account' },
+        },
+      },
+      async execute(_id, params) {
+        const { getClient } = await import('openbroker');
+        const client = getClient();
+
+        if (params.balances) {
+          const balances = await client.getSpotBalances();
+          return json({
+            address: client.address,
+            balances: (balances.balances ?? []).filter((b) => b.coin.startsWith('+') || b.coin.startsWith('#')),
+          });
+        }
+
+        let markets = await client.getOutcomeMarkets();
+        if (params.outcome) {
+          const resolved = client.resolveOutcomeRef(params.outcome as string, params.side as string | undefined);
+          markets = markets.filter((market) => market.outcome === resolved.outcome)
+            .map((market) => ({
+              ...market,
+              sides: market.sides.filter((side) => side.side === resolved.side),
+            }));
+        }
+
+        if (params.query) {
+          const query = String(params.query).toUpperCase();
+          markets = markets.filter((market) => {
+            const parsed = Object.values(market.parsedDescription).join(' ');
+            return `${market.name} ${market.description} ${parsed}`.toUpperCase().includes(query);
+          });
+        }
+
+        return json({ markets });
       },
     },
 
@@ -909,6 +981,112 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
     },
 
     // ── Trading Tools ───────────────────────────────────────────
+
+    {
+      name: 'ob_outcome_buy',
+      description: 'Buy a HIP-4 YES/NO outcome token on Hyperliquid. Always use dry=true first to preview.',
+      parameters: {
+        type: 'object',
+        properties: {
+          outcome: { type: 'string', description: 'Outcome id, #encoding, or +encoding' },
+          outcomeSide: { type: 'string', enum: ['yes', 'no', '0', '1'], description: 'Outcome side when outcome is a plain id' },
+          size: { type: 'number', description: 'Order size in outcome token units' },
+          price: { type: 'number', description: 'Limit price between 0 and 1 (omit for market order)' },
+          tif: { type: 'string', enum: ['Gtc', 'Ioc', 'Alo'], description: 'Time in force for limit orders (default: Gtc)' },
+          slippage: { type: 'number', description: 'Slippage tolerance in bps for market orders (default: 50)' },
+          szDecimals: { type: 'number', description: 'Override size decimals if metadata omits token decimals' },
+          dry: { type: 'boolean', description: 'Preview without executing' },
+        },
+        required: ['outcome', 'size'],
+      },
+      async execute(_id, params) {
+        const { getClient } = await import('openbroker');
+        const client = getClient();
+        if (client.isReadOnly) return error('Wallet not configured. Run "openbroker setup" first.');
+
+        const outcome = params.outcome as string;
+        const outcomeSide = params.outcomeSide as string | undefined;
+        const size = params.size as number;
+        const price = params.price as number | undefined;
+        const isMarket = price === undefined;
+        const resolved = client.resolveOutcomeRef(outcome, outcomeSide);
+        const midPrice = await client.getOutcomeMidPrice(resolved.outcome, resolved.side);
+
+        if (params.dry) {
+          return json({
+            dryRun: true,
+            action: 'outcome_buy',
+            outcome: resolved.outcome,
+            outcomeSide: resolved.side,
+            coin: resolved.coin,
+            assetId: resolved.assetId,
+            size,
+            type: isMarket ? 'market' : 'limit',
+            midPrice,
+            price: price ?? midPrice,
+          });
+        }
+
+        const result = isMarket
+          ? await client.outcomeMarketOrder(outcome, outcomeSide, true, size, params.slippage as number | undefined, params.szDecimals as number | undefined)
+          : await client.outcomeLimitOrder(outcome, outcomeSide, true, size, price!, (params.tif as 'Gtc' | 'Ioc' | 'Alo') ?? 'Gtc', params.szDecimals as number | undefined);
+
+        return json({ action: 'outcome_buy', outcome: resolved.outcome, coin: resolved.coin, size, type: isMarket ? 'market' : 'limit', result });
+      },
+    },
+
+    {
+      name: 'ob_outcome_sell',
+      description: 'Sell or close a HIP-4 YES/NO outcome token on Hyperliquid. Always use dry=true first to preview.',
+      parameters: {
+        type: 'object',
+        properties: {
+          outcome: { type: 'string', description: 'Outcome id, #encoding, or +encoding' },
+          outcomeSide: { type: 'string', enum: ['yes', 'no', '0', '1'], description: 'Outcome side when outcome is a plain id' },
+          size: { type: 'number', description: 'Order size in outcome token units' },
+          price: { type: 'number', description: 'Limit price between 0 and 1 (omit for market order)' },
+          tif: { type: 'string', enum: ['Gtc', 'Ioc', 'Alo'], description: 'Time in force for limit orders (default: Gtc)' },
+          slippage: { type: 'number', description: 'Slippage tolerance in bps for market orders (default: 50)' },
+          szDecimals: { type: 'number', description: 'Override size decimals if metadata omits token decimals' },
+          dry: { type: 'boolean', description: 'Preview without executing' },
+        },
+        required: ['outcome', 'size'],
+      },
+      async execute(_id, params) {
+        const { getClient } = await import('openbroker');
+        const client = getClient();
+        if (client.isReadOnly) return error('Wallet not configured. Run "openbroker setup" first.');
+
+        const outcome = params.outcome as string;
+        const outcomeSide = params.outcomeSide as string | undefined;
+        const size = params.size as number;
+        const price = params.price as number | undefined;
+        const isMarket = price === undefined;
+        const resolved = client.resolveOutcomeRef(outcome, outcomeSide);
+        const midPrice = await client.getOutcomeMidPrice(resolved.outcome, resolved.side);
+
+        if (params.dry) {
+          return json({
+            dryRun: true,
+            action: 'outcome_sell',
+            outcome: resolved.outcome,
+            outcomeSide: resolved.side,
+            coin: resolved.coin,
+            assetId: resolved.assetId,
+            size,
+            type: isMarket ? 'market' : 'limit',
+            midPrice,
+            price: price ?? midPrice,
+          });
+        }
+
+        const result = isMarket
+          ? await client.outcomeMarketOrder(outcome, outcomeSide, false, size, params.slippage as number | undefined, params.szDecimals as number | undefined)
+          : await client.outcomeLimitOrder(outcome, outcomeSide, false, size, price!, (params.tif as 'Gtc' | 'Ioc' | 'Alo') ?? 'Gtc', params.szDecimals as number | undefined);
+
+        return json({ action: 'outcome_sell', outcome: resolved.outcome, coin: resolved.coin, size, type: isMarket ? 'market' : 'limit', result });
+      },
+    },
 
     {
       name: 'ob_buy',
