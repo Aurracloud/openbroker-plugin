@@ -440,6 +440,8 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
                   type: 'outcome',
                   outcome: market.outcome,
                   outcomeSide: side.name,
+                  outcomeName: market.name,
+                  tokenName: side.tokenName,
                   assetId: side.assetId,
                   markPx: side.midPx ?? side.markPx,
                   dayVolume: side.dayNtlVlm,
@@ -467,6 +469,7 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
           outcome: { type: 'string', description: 'Outcome id, #encoding, or +encoding for a specific market' },
           side: { type: 'string', enum: ['yes', 'no', '0', '1'], description: 'Outcome side when outcome is a plain id' },
           balances: { type: 'boolean', description: 'Return outcome token balances for the configured account' },
+          top: { type: 'number', description: 'Show top N outcome markets by max side volume' },
         },
       },
       async execute(_id, params) {
@@ -497,6 +500,16 @@ export function createTools(watcherOrCtx: PositionWatcher | null | ToolsContext)
             const parsed = Object.values(market.parsedDescription).join(' ');
             return `${market.name} ${market.description} ${parsed}`.toUpperCase().includes(query);
           });
+        }
+
+        markets.sort((a, b) => {
+          const aVol = Math.max(...a.sides.map((side) => parseFloat(side.dayNtlVlm ?? '0')));
+          const bVol = Math.max(...b.sides.map((side) => parseFloat(side.dayNtlVlm ?? '0')));
+          return bVol - aVol;
+        });
+
+        if (typeof params.top === 'number' && Number.isFinite(params.top) && params.top > 0) {
+          markets = markets.slice(0, Math.floor(params.top));
         }
 
         return json({ markets });

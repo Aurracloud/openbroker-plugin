@@ -4,7 +4,7 @@ description: Hyperliquid trading skill for agents. Use the `openbroker` CLI dire
 license: MIT
 compatibility: Requires Node.js 22+, network access to api.hyperliquid.xyz
 homepage: https://www.npmjs.com/package/openbroker-plugin
-metadata: {"author": "monemetrics", "version": "1.3.1", "openclaw": {"requires": {"bins": ["openbroker"], "env": ["HYPERLIQUID_PRIVATE_KEY"]}, "primaryEnv": "HYPERLIQUID_PRIVATE_KEY", "install": [{"id": "node", "kind": "node", "package": "openbroker-plugin", "bins": ["openbroker"], "label": "Install openbroker-plugin (npm)"}]}}
+metadata: {"author": "monemetrics", "version": "1.3.2", "openclaw": {"requires": {"bins": ["openbroker"], "env": ["HYPERLIQUID_PRIVATE_KEY"]}, "primaryEnv": "HYPERLIQUID_PRIVATE_KEY", "install": [{"id": "node", "kind": "node", "package": "openbroker-plugin", "bins": ["openbroker"], "label": "Install openbroker-plugin (npm)"}]}}
 allowed-tools: ob_account ob_positions ob_funding ob_markets ob_search ob_spot ob_outcomes ob_fills ob_orders ob_order_status ob_fees ob_candles ob_funding_history ob_trades ob_rate_limit ob_funding_scan ob_buy ob_sell ob_limit ob_trigger ob_tpsl ob_cancel ob_spot_buy ob_spot_sell ob_outcome_buy ob_outcome_sell ob_twap ob_twap_cancel ob_twap_status ob_bracket ob_chase ob_watcher_status ob_auto_run ob_auto_stop ob_auto_list Bash(openbroker:*)
 ---
 
@@ -52,12 +52,15 @@ Common globals:
 openbroker search --query GOLD --json
 openbroker search --query BTC --type perp --json
 openbroker all-markets --type hip3 --json
+openbroker all-markets --type outcome --json
 openbroker outcomes --query BTC --json
 ```
 
 - HIP-3 perps use `dex:COIN`, e.g. `xyz:CL`, not bare `CL`.
 - `assetId` is the canonical identifier for comparisons and persisted agent state; order placement still uses `--coin`.
-- HIP-4 outcome orders use `--outcome <id|#encoding|+encoding>` plus `--outcome-side yes|no` when the reference is a plain ID.
+- For HIP-4 discovery, use `outcomes --json` for grouped market metadata and `all-markets --type outcome --json` for flattened side rows.
+- HIP-4 outcome orders use `--outcome <id|#encoding|+encoding>` plus `--outcome-side yes|no` when the reference is a plain ID. Encoded sides use `encoding = 10 * outcomeId + side`, where side `0` is the first side and side `1` is the second side.
+- HIP-4 order books use `#<encoding>` coins; spot balances may show `+<encoding>` token names.
 - On testnet, HIP-3 metadata may need an explicit prefixed coin such as `dex:COIN`.
 
 ## CLI command map
@@ -72,7 +75,7 @@ Most info commands accept `--json`. Use `--coin`, `--top`, and `--address` where
 | `positions` | Open perp positions and liquidation distance | `--coin`, `--address` |
 | `funding` | Funding rates | `--coin`, `--top`, `--sort annualized|hourly|oi`, `--all`, `--include-hip3` |
 | `markets` | Perp market data | `--coin`, `--top`, `--sort volume|oi|change`, `--include-hip3` |
-| `all-markets` | Browse every venue type | `--type perp|hip3|spot|outcome|all`, `--top` |
+| `all-markets` | Browse every venue type | `--type perp|hip3|spot|outcome|all`, `--top`, `--json` |
 | `search` | Find markets across providers | `--query`, `--type` |
 | `spot` | Spot markets or balances | `--coin`, `--balances`, `--address`, `--top` |
 | `fills` | Recent fills | `--coin`, `--side buy|sell`, `--top`, `--address` |
@@ -84,7 +87,7 @@ Most info commands accept `--json`. Use `--coin`, `--top`, and `--address` where
 | `trades` | Recent tape | `--coin`, `--top` |
 | `rate-limit` | API usage | — |
 | `funding-scan` | Cross-dex scan | `--threshold`, `--main-only`, `--hip3-only`, `--pairs`, `--watch`, `--interval`, `--top` |
-| `outcomes` | HIP-4 discovery/balances | `--query`, `--outcome`, `--side`, `--balances`, `--top` |
+| `outcomes` | HIP-4 discovery/balances | `--query`, `--outcome`, `--side`, `--balances`, `--top`, `--json` |
 
 ### Perp trading
 
